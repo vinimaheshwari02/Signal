@@ -1,0 +1,9 @@
+*.pyc
+.env
+.idea/
+.pytest_cache/
+.ruff_cache/
+.venv/
+__pycache__/
+keys.json
+requests/http-client.private.env.json

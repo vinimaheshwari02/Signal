@@ -1,0 +1,73 @@
+### Signal requests for IntelliJ (HTTP Client). Select the "local" environment.
+### Keys come from requests/http-client.private.env.json (made by: python scripts/make_http_env.py).
+
+### Health / docs
+GET {{host}}/docs
+
+### 1. support_ticket
+POST {{host}}/v1/sources/support_ticket/feedback
+X-Api-Key: {{support_ticket}}
+Idempotency-Key: demo-ticket-1
+Content-Type: application/json
+
+{"ticket":{"id":"ZD-1","created":1784609488000,"description":"My parcel never arrived, call me on +44 7700 900519","requester":{"customer_ref":"C1","locale":"en-GB"},"brand":"ridgeline"}}
+
+### 2. app_store
+POST {{host}}/v1/sources/app_store/feedback
+X-Api-Key: {{app_store}}
+Content-Type: application/json
+
+{"review_id":"rv_1","rating":3,"title":"Kann ich per Rechnung bezahlen?","body":"Kann ich auch per Rechnung bezahlen?","reviewed_at":"2026-07-21T05:53:50Z","territory":"DE","app":"ridgeline"}
+
+### 3. nps_survey
+POST {{host}}/v1/sources/nps_survey/feedback
+X-Api-Key: {{nps_survey}}
+Content-Type: application/json
+
+{"response_id":"nps-1","score":10,"comment":"Free returns made me confident to order.","submitted":"21/07/2026 02:52","customer_id":"C1","market":"UK","account":"ridgeline"}
+
+### 4. in_app
+POST {{host}}/v1/sources/in_app/feedback
+X-Api-Key: {{in_app}}
+Content-Type: application/json
+
+{"event":"feedback_submitted","ts":"2026-07-21T03:11:49.000+02:00","user":{"id":"C1","locale":"fr-FR"},"app":"ridgeline","payload":{"screen":"orders/returns","message":"Retour envoyé il y a 4 jours, toujours pas remboursé.","mood":"angry"}}
+
+### 5. social
+POST {{host}}/v1/sources/social/feedback
+X-Api-Key: {{social}}
+Content-Type: application/json
+
+{"post_id":"1790000000000087109","text":"Parcel marked as delivered but nothing arrived.","created_at":"Tue, 21 Jul 2026 01:52:52 +0000","lang":"en","author_handle":"@jan1134"}
+
+### Read back (wait a few seconds for the worker)
+GET {{host}}/v1/feedback
+X-Api-Key: {{support_ticket}}
+
+### Expect 401: wrong key
+POST {{host}}/v1/sources/social/feedback
+X-Api-Key: wrong
+Content-Type: application/json
+
+{"text":"hi"}
+
+### Expect 403: key for another channel
+POST {{host}}/v1/sources/social/feedback
+X-Api-Key: {{nps_survey}}
+Content-Type: application/json
+
+{"text":"hi"}
+
+### Expect 400: broken JSON
+POST {{host}}/v1/sources/social/feedback
+X-Api-Key: {{social}}
+Content-Type: application/json
+
+{"text":"cut off
+
+### Expect 422: no text
+POST {{host}}/v1/sources/social/feedback
+X-Api-Key: {{social}}
+Content-Type: application/json
+
+{"post_id":"1","text":"   "}
