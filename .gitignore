@@ -7,3 +7,4 @@
 __pycache__/
 keys.json
 requests/http-client.private.env.json
+uv.lock
