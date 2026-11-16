@@ -16,46 +16,73 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from signal_app.core.enrich import enrich  # noqa: E402
 from signal_app.core.normalise import NORMALISERS  # noqa: E402
 
-ap = argparse.ArgumentParser()
-ap.add_argument("feedback")
-ap.add_argument("labelled")
-ap.add_argument("--show", type=int, default=10, help="wrong examples to print per label")
-a = ap.parse_args()
+parser = argparse.ArgumentParser()
+parser.add_argument("feedback")
+parser.add_argument("labelled")
+parser.add_argument("--show", type=int, default=10, help="wrong examples to print per label")
+args = parser.parse_args()
 
-lines = open(a.feedback, encoding="utf-8").read().split("\n")
-labelled = [json.loads(line) for line in open(a.labelled, encoding="utf-8")]
+with open(args.feedback, encoding="utf-8") as feedback_file:
+    lines = feedback_file.read().split("\n")
+labelled = []
+with open(args.labelled, encoding="utf-8") as labelled_file:
+    for line in labelled_file:
+        labelled.append(json.loads(line))
 
 LABELS = ("language", "sentiment", "area")
+# Two runs: with what the source tells us (locale, rating, mood), and from the text alone.
 MODES = {"with source hints": True, "text only": False}
-correct = {m: collections.Counter() for m in MODES}
-by_channel = {m: collections.defaultdict(collections.Counter) for m in MODES}
-totals = collections.Counter()
-wrong = {m: collections.defaultdict(list) for m in MODES}
 
-for x in labelled:
-    row = json.loads(lines[x["line"] - 1], strict=False)
-    received = datetime.fromisoformat(row["received_at"].replace("Z", "+00:00"))
-    item = NORMALISERS[row["channel"]](row["tenant"], row["payload"], received, "salt")
-    truth = {"language": x["language"], "sentiment": x["sentiment"], "area": x["product_area"]}
-    totals[row["channel"]] += 1
-    for mode, use_hints in MODES.items():
-        e = enrich(item["text"], item["language"] if use_hints else None, item["sentiment_hint"] if use_hints else None)
-        got = {"language": e.language, "sentiment": e.sentiment, "area": e.area}
-        for label in LABELS:
-            ok = got[label] == truth[label]
-            correct[mode][label] += ok
-            by_channel[mode][row["channel"]][label] += ok
-            if not ok:
-                wrong[mode][label].append((truth[label], got[label], item["text"][:90]))
-
-n = len(labelled)
+correct = {}      # mode -> label -> how many were right
+by_channel = {}   # mode -> channel -> label -> how many were right
+wrong = {}        # mode -> label -> examples (expected, got, text)
 for mode in MODES:
-    print(f"\n== {mode}  ({n} items)")
+    correct[mode] = collections.Counter()
+    by_channel[mode] = collections.defaultdict(collections.Counter)
+    wrong[mode] = collections.defaultdict(list)
+totals = collections.Counter()  # channel -> labelled items
+
+for labelled_item in labelled:
+    # A labelled item points at a line of the big file; "line" counts from 1.
+    row = json.loads(lines[labelled_item["line"] - 1], strict=False)
+    channel = row["channel"]
+    received = datetime.fromisoformat(row["received_at"].replace("Z", "+00:00"))
+    normalise = NORMALISERS[channel]
+    item = normalise(tenant=row["tenant"], payload=row["payload"], received_at=received, salt="salt")
+    expected = {"language": labelled_item["language"], "sentiment": labelled_item["sentiment"],
+                "area": labelled_item["product_area"]}
+    totals[channel] += 1
+
+    for mode, use_hints in MODES.items():
+        language_hint = None
+        sentiment_hint = None
+        if use_hints:
+            language_hint = item["language"]
+            sentiment_hint = item["sentiment_hint"]
+        labels = enrich(text=item["text"], language=language_hint, sentiment_hint=sentiment_hint)
+        got = {"language": labels.language, "sentiment": labels.sentiment, "area": labels.area}
+        for label in LABELS:
+            if got[label] == expected[label]:
+                correct[mode][label] += 1
+                by_channel[mode][channel][label] += 1
+            else:
+                wrong[mode][label].append((expected[label], got[label], item["text"][:90]))
+
+total = len(labelled)
+for mode in MODES:
+    print(f"\n== {mode}  ({total} items)")
     for label in LABELS:
-        print(f"  {label:10} {correct[mode][label] / n:6.1%}  ({correct[mode][label]}/{n})")
-    print("  by channel:", "   ".join(
-        f"{ch}: " + "/".join(f"{by_channel[mode][ch][l] / totals[ch]:.0%}" for l in LABELS) for ch in sorted(totals)))
+        print(f"  {label:10} {correct[mode][label] / total:6.1%}  ({correct[mode][label]}/{total})")
+
+    channel_parts = []
+    for channel in sorted(totals):
+        percentages = []
+        for label in LABELS:
+            percentages.append(f"{by_channel[mode][channel][label] / totals[channel]:.0%}")
+        channel_parts.append(f"{channel}: " + "/".join(percentages))
+    print("  by channel:", "   ".join(channel_parts))
     print("  (columns per channel: language/sentiment/area)")
+
     for label in LABELS:
-        for truth, got, text in wrong[mode][label][: a.show]:
-            print(f"  wrong {label}: expected {truth}, got {got}: {text}")
+        for expected_value, got_value, text in wrong[mode][label][: args.show]:
+            print(f"  wrong {label}: expected {expected_value}, got {got_value}: {text}")

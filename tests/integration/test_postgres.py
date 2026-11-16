@@ -69,6 +69,8 @@ def test_post_then_worker_then_get_with_real_postgres(system):
     items = client.get("/v1/feedback", headers={"X-Api-Key": KEY_A}).json()["items"]
     assert [i["feedback_id"] for i in items] == [r.json()["feedback_id"]]
     assert items[0]["market"] == "UK" and items[0]["language"] == "en"
+    assert items[0]["sentiment"] == "negative" and items[0]["kind"] == "problem"      # labels survive the round trip
+    assert items[0]["area"] == "account"
 
 
 def test_sending_the_same_item_twice_gives_200_the_second_time(system):

@@ -25,7 +25,10 @@ class PostgresKeyStore:
     def get(self, key: str) -> str | None:
         with pool(self.url).connection() as conn:
             row = conn.execute("SELECT feedback_id FROM idempotency_keys WHERE key = %s", (key,)).fetchone()
-        return row[0] if row else None
+        if row is None:
+            return None
+        feedback_id = row[0]
+        return feedback_id
 
     def save(self, key: str, tenant: str, feedback_id: str) -> None:
         with pool(self.url).connection() as conn:
@@ -36,7 +39,7 @@ class PostgresKeyStore:
                 pass  # a parallel request got there first; the worker de-duplicates by feedback_id
 
 
-INSERT = """
+INSERT_FEEDBACK_SQL = """
 INSERT INTO feedback (feedback_id, tenant_id, channel, source_id, customer_ref, market, language,
                       text, created_at, received_at, sentiment, kind, area, topic)
 VALUES (%(feedback_id)s, %(tenant_id)s, %(channel)s, %(source_id)s, %(customer_ref)s, %(market)s,
@@ -51,7 +54,7 @@ class PostgresFeedbackRepository:
 
     def save(self, message: dict) -> None:
         with pool(self.url).connection() as conn:
-            conn.execute(INSERT, message)
+            conn.execute(INSERT_FEEDBACK_SQL, message)
 
     def list(self, tenant: str, limit: int, before: datetime | None) -> list[Feedback]:
         """Row-level security limits the rows to the tenant set on the transaction."""
@@ -59,10 +62,18 @@ class PostgresFeedbackRepository:
             with conn.transaction():
                 conn.execute("SELECT set_config('app.tenant_id', %s, true)", (tenant,))
                 rows = conn.execute(
-                    """SELECT feedback_id, channel, market, language, text, created_at, received_at
-                       FROM feedback WHERE (%(b)s::timestamptz IS NULL OR created_at < %(b)s)
-                       ORDER BY created_at DESC LIMIT %(l)s""", {"b": before, "l": limit}).fetchall()
-        return [Feedback(*r) for r in rows]
+                    """SELECT feedback_id, channel, market, language, text, created_at, received_at,
+                              sentiment, kind, area, topic
+                       FROM feedback
+                       WHERE (%(before)s::timestamptz IS NULL OR created_at < %(before)s)
+                       ORDER BY created_at DESC LIMIT %(limit)s""",
+                    {"before": before, "limit": limit}).fetchall()
+        feedback = []
+        for row in rows:  # the columns come back in the order of the SELECT above
+            feedback.append(Feedback(feedback_id=row[0], channel=row[1], market=row[2], language=row[3],
+                                     text=row[4], created_at=row[5], received_at=row[6],
+                                     sentiment=row[7], kind=row[8], area=row[9], topic=row[10]))
+        return feedback
 
 
 class PostgresApiKeyDirectory:
@@ -73,4 +84,7 @@ class PostgresApiKeyDirectory:
         with pool(self.url).connection() as conn:
             row = conn.execute("SELECT tenant_id, channel FROM api_keys WHERE key_hash = %s",
                                (hash_api_key(api_key),)).fetchone()
-        return (row[0], row[1]) if row else None
+        if row is None:
+            return None
+        tenant_id, channel = row
+        return tenant_id, channel

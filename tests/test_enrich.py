@@ -65,8 +65,13 @@ def test_unrecognised_text_goes_to_general_other():
     assert classify("", "en") == ("general", "other")
 
 
-def test_weak_area_words_give_the_areas_other_topic():
-    assert classify("something about my parcel", "en") == ("delivery", "other")
+def test_a_text_that_matches_no_topic_is_general_other():
+    assert classify("something about my parcel", "en") == ("general", "other")
+
+
+def test_one_word_is_not_counted_twice_for_a_topic():
+    # "frozen" used to count for checkout twice and beat the delivery words.
+    assert classify("Where is my backpack? Tracking frozen for 16 days.", "en") == ("delivery", "delay")
 
 
 @pytest.mark.parametrize("text,kind", [

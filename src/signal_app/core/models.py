@@ -18,3 +18,7 @@ class Feedback:
     text: str
     created_at: datetime
     received_at: datetime
+    sentiment: str | None = None
+    kind: str | None = None
+    area: str | None = None
+    topic: str | None = None

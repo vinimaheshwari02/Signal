@@ -25,7 +25,8 @@ curl -i -X POST localhost:8000/v1/sources/support_ticket/feedback \
 curl -H "X-Api-Key: $KEY" localhost:8000/v1/feedback
 ```
 
-Replay the data pack: `python tools/replay.py --keys keys.json --channel support_ticket --limit 200`.
+Replay the data pack with its own `replay.py` (it is not part of this repository):
+`python path/to/replay.py --keys keys.json --channel support_ticket --limit 200`.
 
 ## Tests
 

@@ -68,3 +68,23 @@ def test_raw_line_breaks_inside_the_body_are_accepted(pipeline):
     body = b'{"post_id": "p9", "author_handle": "@x", "text": "Parcel\nnever arrived", "lang": "en"}'
     assert ingest.run("social", "key_social", body, None).status == "accepted"
     assert publisher.messages[0]["text"] == "Parcel never arrived"
+
+
+def test_the_read_endpoint_shows_the_labels(pipeline):
+    """POST -> worker -> GET /v1/feedback returns sentiment, kind, area and topic."""
+    from fastapi.testclient import TestClient
+
+    from signal_app.adapters.http.app import create_app
+    from signal_app.core.query import ListFeedback
+
+    ingest, publisher, process, repo = pipeline
+    keys = InMemoryApiKeyDirectory({"key_support_ticket": ("ridgeline", "support_ticket")})
+    client = TestClient(create_app(ingest, ListFeedback(repo, keys)))
+    body = json.dumps(CHANNEL_BODIES["support_ticket"])
+    assert client.post("/v1/sources/support_ticket/feedback", content=body,
+                       headers={"X-Api-Key": "key_support_ticket"}).status_code == 202
+    for message in publisher.messages:
+        process.run(json.dumps(message))
+    item = client.get("/v1/feedback", headers={"X-Api-Key": "key_support_ticket"}).json()["items"][0]
+    assert (item["area"], item["topic"], item["kind"], item["sentiment"]) == \
+        ("delivery", "missing_parcel", "problem", "negative")

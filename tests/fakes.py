@@ -32,10 +32,17 @@ class InMemoryKeyStore:
 
     def get(self, key: str) -> str | None:
         found = self.keys.get(key)
-        return found[1] if found else None
+        if found is None:
+            return None
+        tenant, feedback_id = found
+        return feedback_id
 
     def save(self, key: str, tenant: str, feedback_id: str) -> None:
         self.keys.setdefault(key, (tenant, feedback_id))
+
+
+def created_at_of(row: dict) -> datetime:
+    return datetime.fromisoformat(row["created_at"])
 
 
 class InMemoryFeedbackRepository:
@@ -46,13 +53,26 @@ class InMemoryFeedbackRepository:
         self.rows.setdefault(message["feedback_id"], message)
 
     def list(self, tenant: str, limit: int, before: datetime | None) -> list[Feedback]:
-        def ts(m, k):
-            return datetime.fromisoformat(m[k])
-        rows = [m for m in self.rows.values() if m["tenant_id"] == tenant
-                and (before is None or ts(m, "created_at") < before)]
-        rows.sort(key=lambda m: ts(m, "created_at"), reverse=True)
-        return [Feedback(m["feedback_id"], m["channel"], m["market"], m["language"], m["text"],
-                         ts(m, "created_at"), ts(m, "received_at")) for m in rows[:limit]]
+        # Keep this tenant's rows, and only those older than `before` if it is given.
+        matching = []
+        for row in self.rows.values():
+            if row["tenant_id"] != tenant:
+                continue
+            if before is not None and created_at_of(row) >= before:
+                continue
+            matching.append(row)
+        matching.sort(key=created_at_of, reverse=True)  # newest first
+
+        feedback = []
+        for row in matching[:limit]:
+            feedback.append(Feedback(
+                feedback_id=row["feedback_id"], channel=row["channel"], market=row["market"],
+                language=row["language"], text=row["text"],
+                created_at=created_at_of(row),
+                received_at=datetime.fromisoformat(row["received_at"]),
+                sentiment=row.get("sentiment"), kind=row.get("kind"),
+                area=row.get("area"), topic=row.get("topic")))
+        return feedback
 
 
 class InMemoryApiKeyDirectory:

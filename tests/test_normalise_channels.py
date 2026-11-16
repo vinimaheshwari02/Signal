@@ -136,3 +136,8 @@ def test_pii_is_masked():
 
 def test_pii_is_masked_in_the_stored_text():
     assert "[email]" in run("social", post(text="Write to jo@example.org please"))["text"]
+
+
+def test_nps_market_that_is_not_text_is_ignored_not_a_crash():
+    item = NORMALISERS["nps_survey"]("t", {"response_id": "n", "comment": "fine", "market": ["UK"]}, RCV, "s")
+    assert item["market"] is None

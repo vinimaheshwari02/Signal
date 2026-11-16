@@ -2,7 +2,7 @@
 import json
 
 from .auth import authenticate
-from .errors import BadJson, Forbidden, PayloadTooLarge, Rejected, UnknownChannel
+from .errors import BadJson, Forbidden, PayloadTooLarge, UnknownChannel
 from .ids import feedback_id, idempotency_key
 from .models import IngestResult
 from .normalise import NORMALISERS
@@ -36,19 +36,22 @@ class IngestFeedback:
             raise BadJson("body is not valid JSON")
 
         received_at = self.clock.now()
-        # Rejected (422) propagates as is.
-        item = NORMALISERS[channel](tenant, payload, received_at, self.salt)
+        normalise = NORMALISERS[channel]
+        # An unusable payload raises Rejected here, which the API shows as 422.
+        item = normalise(tenant=tenant, payload=payload, received_at=received_at, salt=self.salt)
 
-        key = idempotency_key(tenant, channel, item["source_id"], idempotency_header, payload)
-        fid = feedback_id(key)
+        key = idempotency_key(tenant=tenant, channel=channel, source_id=item["source_id"],
+                              header_key=idempotency_header, payload=payload)
+        new_feedback_id = feedback_id(key)
 
-        seen = self.key_store.get(key)
-        if seen:
-            return IngestResult(seen, "duplicate")
+        existing_feedback_id = self.key_store.get(key)
+        if existing_feedback_id:
+            return IngestResult(feedback_id=existing_feedback_id, status="duplicate")
 
         # Publish first, then remember the key: a failure in between can cause a duplicate, never a loss.
-        message = {"feedback_id": fid, "tenant_id": tenant, "channel": channel,
-                   "received_at": received_at.isoformat(), **item}
-        self.publisher.publish(message)  # PublishError propagates; the key is not saved
-        self.key_store.save(key, tenant, fid)
-        return IngestResult(fid, "accepted")
+        message = {"feedback_id": new_feedback_id, "tenant_id": tenant, "channel": channel,
+                   "received_at": received_at.isoformat()}
+        message.update(item)  # add the normalised fields: text, created_at, market, ...
+        self.publisher.publish(message)  # a failure raises PublishError; the key is then not saved
+        self.key_store.save(key, tenant, new_feedback_id)
+        return IngestResult(feedback_id=new_feedback_id, status="accepted")

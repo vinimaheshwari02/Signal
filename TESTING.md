@@ -9,12 +9,13 @@ uv sync
 uv run pytest
 ```
 
-138 tests (8 integration tests are skipped unless level 4 is set up). They cover:
+144 tests (8 integration tests are skipped unless level 4 is set up). They cover:
 - `test_normalise_channels.py` – each of the 5 channels' messy-data rules (time formats, word-number
   ratings, PII masking, missing text -> rejected).
 - `test_enrich.py` – language, sentiment, kind, area and topic for en/de/fr.
 - `test_process.py` – all 5 channels through API -> worker using in-memory fakes.
 - `test_http.py`, `test_ingest_usecase.py`, `test_ids.py` – status codes, idempotency, ids.
+- `test_kafka_consumer.py` – the worker commits, skips or retries one Kafka message (no broker needed).
 - `test_architecture.py` – fails if `core/` imports FastAPI, Kafka or psycopg.
 
 ## 2. Check the rules against the real data pack (no Docker)
@@ -90,10 +91,12 @@ row-level security, the API role cannot write feedback, repeated saves are harml
 
 ## 5. Replay the data pack against the running stack
 
+`replay.py` comes with the data pack, not with this repository; use its path below.
+
 ```bash
-python tools/replay.py --keys keys.json --channel nps_survey --limit 200 --dry-run   # look first
-python tools/replay.py --keys keys.json --channel nps_survey --limit 200
-python tools/replay.py --keys keys.json --limit 5000 --no-idempotency-key            # compare dedupe
+python path/to/replay.py --keys keys.json --channel nps_survey --limit 200 --dry-run   # look first
+python path/to/replay.py --keys keys.json --channel nps_survey --limit 200
+python path/to/replay.py --keys keys.json --limit 5000 --no-idempotency-key            # compare dedupe
 ```
 Expect mostly `202`, a few `400` (cut-off lines), `422` (no text) and `401` (the unknown tenant `acme`).
 In my run of the first 6000 lines against a real Postgres: 5938 x 202, 25 x 422, 17 x 400, 20 x 401,

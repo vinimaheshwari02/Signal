@@ -17,9 +17,14 @@ class SystemClock:
 def build_app():
     # API uses the restricted DATABASE_URL role (row-level security applies).
     keys = PostgresApiKeyDirectory(config.DATABASE_URL)
-    ingest = IngestFeedback(KafkaPublisher(), PostgresKeyStore(config.DATABASE_URL), keys,
-                            SystemClock(), config.CUSTOMER_SALT, config.MAX_BODY_BYTES)
-    return create_app(ingest, ListFeedback(PostgresFeedbackRepository(config.DATABASE_URL), keys))
+    ingest = IngestFeedback(publisher=KafkaPublisher(),
+                            key_store=PostgresKeyStore(config.DATABASE_URL),
+                            keys=keys,
+                            clock=SystemClock(),
+                            salt=config.CUSTOMER_SALT,
+                            max_body_bytes=config.MAX_BODY_BYTES)
+    list_feedback = ListFeedback(repository=PostgresFeedbackRepository(config.DATABASE_URL), keys=keys)
+    return create_app(ingest=ingest, list_feedback=list_feedback)
 
 
 app = build_app()

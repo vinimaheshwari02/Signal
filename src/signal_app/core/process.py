@@ -13,6 +13,12 @@ class ProcessFeedback:
         """Raises ValueError/KeyError/TypeError for a message that cannot be read (the consumer skips
         those); any other error, such as the database being down, means "try again"."""
         message = json.loads(raw)
-        e = enrich(message["text"], message.get("language"), message.get("sentiment_hint"))
-        self.repository.save({**message, "language": e.language, "sentiment": e.sentiment, "kind": e.kind,
-                              "area": e.area, "topic": e.topic})
+        labels = enrich(text=message["text"], language=message.get("language"),
+                        sentiment_hint=message.get("sentiment_hint"))
+        row = dict(message)  # a copy: everything the API sent, plus the labels
+        row["language"] = labels.language
+        row["sentiment"] = labels.sentiment
+        row["kind"] = labels.kind
+        row["area"] = labels.area
+        row["topic"] = labels.topic
+        self.repository.save(row)

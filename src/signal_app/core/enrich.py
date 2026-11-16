@@ -2,6 +2,9 @@
 
 No machine learning and no outside calls (ADR 0006): the same text always gets the same labels,
 and every label can be explained by the words that triggered it. The words live in taxonomy.py.
+
+Read it from the bottom: enrich() calls the functions above it in this order:
+detect_language -> text_sentiment -> classify -> find_kind.
 """
 import re
 from dataclasses import dataclass
@@ -9,7 +12,6 @@ from dataclasses import dataclass
 from .taxonomy import NEGATIVE, POSITIVE, QUESTION_START, STOPWORDS, SUGGESTION, TAXONOMY
 
 LANGUAGES = ("en", "de", "fr")
-OTHER_CAP = 0.9  # the weak words of an "other" topic never beat one real trigger
 
 
 @dataclass(frozen=True)
@@ -21,91 +23,166 @@ class Enrichment:
     topic: str
 
 
-def _norm(text: str) -> str:
-    return re.sub(r"\s+", " ", text.replace("’", "'").replace("`", "'").lower()).strip()
+# ---------- preparing the word lists (runs once, when the program starts) ----------
+
+def compile_patterns(patterns: list[str]) -> list[re.Pattern]:
+    """["never arrived", ...] -> [compiled pattern, ...] so matching is fast."""
+    compiled = []
+    for pattern in patterns:
+        compiled.append(re.compile(pattern))
+    return compiled
 
 
-def _compile(patterns) -> list[tuple[re.Pattern, float]]:
-    return [(re.compile(p if isinstance(p, str) else p[0]), 1.0 if isinstance(p, str) else p[1]) for p in patterns]
+def compile_per_language(per_language: dict[str, list]) -> dict[str, list]:
+    """{"en": [...], "de": [...]} -> the same, with every list compiled."""
+    result = {}
+    for language, patterns in per_language.items():
+        result[language] = compile_patterns(patterns)
+    return result
 
 
-_TOPICS = [(area, topic, {lang: _compile(ps) for lang, ps in langs.items()})
-           for area, topics in TAXONOMY.items() for topic, langs in topics.items()]
-_POS = {lang: _compile(ps) for lang, ps in POSITIVE.items()}
-_NEG = {lang: _compile(ps) for lang, ps in NEGATIVE.items()}
-_SUGGEST = _compile(SUGGESTION)
-_QUESTION = _compile(QUESTION_START)
+def build_topics() -> list[tuple[str, str, dict]]:
+    """The nested TAXONOMY as a flat list: [(area, topic, {language: compiled patterns}), ...].
+    The order is the order in taxonomy.py; it decides ties."""
+    topics = []
+    for area, topics_of_area in TAXONOMY.items():
+        for topic, per_language in topics_of_area.items():
+            topics.append((area, topic, compile_per_language(per_language)))
+    return topics
+
+
+TOPICS = build_topics()
+POSITIVE_PATTERNS = compile_per_language(POSITIVE)
+NEGATIVE_PATTERNS = compile_per_language(NEGATIVE)
+SUGGESTION_PATTERNS = compile_patterns(SUGGESTION)
+QUESTION_PATTERNS = compile_patterns(QUESTION_START)
+
+
+# ---------- two small helpers used everywhere ----------
+
+def clean(text: str) -> str:
+    """Lower case, straight apostrophes, single spaces: the form the patterns are written for."""
+    text = text.replace("’", "'").replace("`", "'").lower()
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def count_matches(patterns: list[re.Pattern], text: str) -> int:
+    """How many of the patterns are found in the text. Each pattern counts once."""
+    count = 0
+    for pattern in patterns:
+        if pattern.search(text):
+            count += 1
+    return count
+
+
+# ---------- step 1: language ----------
+
+def count_common_words(text: str, language: str) -> int:
+    """How many words of the text are everyday words of this language ("the", "der", "le")."""
+    common = set(STOPWORDS[language])
+    count = 0
+    for word in re.findall(r"[\w'-]+", text):
+        if word in common:
+            count += 1
+    return count
+
+
+def count_own_patterns(text: str, language: str) -> int:
+    """Short texts may have no everyday words at all, so the language's own sentiment and topic
+    words count too."""
+    count = count_matches(POSITIVE_PATTERNS[language], text) + count_matches(NEGATIVE_PATTERNS[language], text)
+    for _, _, per_language in TOPICS:
+        count += count_matches(per_language.get(language, []), text)
+    return count
 
 
 def detect_language(text: str) -> str:
-    """The language whose common words appear most; English if nothing decides."""
-    t = _norm(text)
-    words = re.findall(r"[\w'-]+", t)
-    scores = {lang: sum(1 for w in words if w in set(sw)) for lang, sw in STOPWORDS.items()}
-    scores["de"] += 2 * len(re.findall(r"[äöüß]", t))
-    scores["fr"] += len(re.findall(r"[éèêàçùœâîô]", t))
-    # Short texts may have no common words at all: the language's own sentiment and topic words count too.
-    for lang in LANGUAGES:
-        scores[lang] += (sum(1 for p, _ in _POS[lang] if p.search(t)) + sum(1 for p, _ in _NEG[lang] if p.search(t))
-                         + sum(1 for _, _, per in _TOPICS for p, _ in per.get(lang, []) if p.search(t)))
-    best = max(LANGUAGES, key=lambda lang: (scores[lang], lang == "en"))
-    return best if scores[best] > 0 else "en"
+    """The language with the most signs in the text. English if nothing decides or on a tie."""
+    t = clean(text)
+    points = {}
+    for language in LANGUAGES:
+        points[language] = count_common_words(t, language) + count_own_patterns(t, language)
+    best = "en"
+    for language in ("de", "fr"):
+        if points[language] > points[best]:  # must be strictly more: a tie keeps the earlier one
+            best = language
+    return best
 
 
-def _hits(patterns: list[tuple[re.Pattern, float]], text: str) -> float:
-    return sum(w for p, w in patterns if p.search(text))
-
+# ---------- step 2: sentiment ----------
 
 def text_sentiment(text: str, language: str) -> str:
-    """negative / neutral / positive from the words alone."""
-    t = _norm(text)
-    pos = _hits(_POS[language], t)
-    neg = _hits(_NEG[language], t)
-    if neg > 0 and neg >= pos:
+    """negative / neutral / positive from the words alone. Negative wins a tie."""
+    t = clean(text)
+    positive = count_matches(POSITIVE_PATTERNS[language], t)
+    negative = count_matches(NEGATIVE_PATTERNS[language], t)
+    if negative > 0 and negative >= positive:
         return "negative"
-    return "positive" if pos > 0 else "neutral"
+    if positive > 0:
+        return "positive"
+    return "neutral"
+
+
+# ---------- step 3: area and topic ----------
+
+def best_topic(text: str, languages) -> tuple[int, str, str]:
+    """(matches, area, topic) of the topic with the most matching patterns, looking only at the
+    given languages. The first listed topic wins a tie. No match at all: (0, "general", "other")."""
+    best = (0, "general", "other")
+    for area, topic, per_language in TOPICS:
+        matches = 0
+        for language in languages:
+            matches += count_matches(per_language.get(language, []), text)
+        if matches > best[0]:
+            best = (matches, area, topic)
+    return best
 
 
 def classify(text: str, language: str) -> tuple[str, str]:
-    """(area, topic). The topic with the highest trigger total wins; the first listed wins a tie.
-    Nothing matching in the text's language means we try every language; still nothing means
-    ("general", "other")."""
-    t = _norm(text)
-
-    def best(langs) -> tuple[float, str, str]:
-        top = (0.0, "general", "other")
-        for area, topic, per_lang in _TOPICS:
-            score = sum(_hits(per_lang.get(lang, []), t) for lang in langs)
-            if topic == "other":
-                score = min(score, OTHER_CAP)
-            if score > top[0]:
-                top = (score, area, topic)
-        return top
-
-    score, area, topic = best([language])
-    if score < 0.5:
-        score, area, topic = best(LANGUAGES)
-    return (area, topic) if score >= 0.5 else ("general", "other")
+    """(area, topic). First try the text's own language; if nothing matches, try every language;
+    if still nothing, ("general", "other")."""
+    t = clean(text)
+    matches, area, topic = best_topic(t, [language])
+    if matches == 0:
+        matches, area, topic = best_topic(t, LANGUAGES)
+    return (area, topic)
 
 
-def _kind(text: str, sentiment: str) -> str:
-    t = _norm(text)
+# ---------- step 4: kind ----------
+
+def find_kind(text: str, sentiment: str) -> str:
+    """The first rule that fits wins: problem, suggestion, question, praise, other."""
+    t = clean(text)
     if sentiment == "negative":
         return "problem"
-    if _hits(_SUGGEST, t):
+    if count_matches(SUGGESTION_PATTERNS, t) > 0:
         return "suggestion"
-    if "?" in t or _hits(_QUESTION, t):
+    if "?" in t or count_matches(QUESTION_PATTERNS, t) > 0:
         return "question"
-    return "praise" if sentiment == "positive" else "other"
+    if sentiment == "positive":
+        return "praise"
+    return "other"
 
+
+# ---------- the entry point ----------
 
 def enrich(text: str, language: str | None = None, sentiment_hint: str | None = None) -> Enrichment:
     """Label one text. `language` and `sentiment_hint` come from the source when it knows them
-    (a locale, a star rating, an NPS score, a mood). The rating only counts when the words are neutral."""
-    lang = language if language in LANGUAGES else detect_language(text)
-    from_text = text_sentiment(text, lang)
-    # Clear words decide. A rating, score or mood only settles texts whose words are neutral (a short or
-    # cut-off text): in the data, ratings written as words ("ten", "five") often contradict the text.
-    sentiment = from_text if from_text != "neutral" else (sentiment_hint or "neutral")
-    area, topic = classify(text, lang)
-    return Enrichment(lang, sentiment, _kind(text, sentiment), area, topic)
+    (a locale, a star rating, an NPS score, a mood)."""
+    # 1. Language: trust the source if it names one we support, otherwise work it out.
+    if language not in LANGUAGES:
+        language = detect_language(text)
+
+    # 2. Sentiment: clear words decide. A rating, score or mood only settles texts whose words are
+    #    neutral: in the data, ratings written as words ("ten", "five") often contradict the text.
+    sentiment = text_sentiment(text, language)
+    if sentiment == "neutral" and sentiment_hint:
+        sentiment = sentiment_hint
+
+    # 3. Area and topic.
+    area, topic = classify(text, language)
+
+    # 4. Kind, which depends on the sentiment.
+    kind = find_kind(text, sentiment)
+
+    return Enrichment(language, sentiment, kind, area, topic)

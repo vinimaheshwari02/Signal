@@ -13,7 +13,7 @@ Enrichment in v1 is rule-based and uses open-source libraries only. There is no 
 - An `Enricher` interface with one implementation per label: language, sentiment, classifier.
 - A taxonomy kept in a config file in the repository: areas, topics and trigger words per language. All tenants share it for now.
 - Kind is decided by ordered rules: known problem pattern, then suggestion, then question, then positive sentiment, otherwise other.
-- Feedback that matches no topic goes to the area's "other" topic, and its frequent keywords are reported so new topics can be added.
+- Feedback that matches no topic is labelled area "general", topic "other", and its frequent keywords are reported so new topics can be added.
 - Each enricher sits behind a feature flag and records its rule version in `extras`.
 - Accuracy is reported against a labelled sample and tracked as a metric.
 - One enricher failing does not fail the item: the rest is saved, the failure is marked and retried.
