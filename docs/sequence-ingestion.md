@@ -9,7 +9,7 @@ sequenceDiagram
     participant A as API (ingest)
     participant R as Redis
     participant P as PostgreSQL
-    participant K as Kafka (feedback.ingested)
+    participant K as Kafka (feedback.raw)
 
     S->>A: POST /v1/sources/{channel}/feedback<br/>X-Api-Key, JSON body
     A->>A: Check channel is known
@@ -42,3 +42,16 @@ sequenceDiagram
 - The tenant in the envelope comes from the API key, never from the payload.
 - Redis down: rate limiting is skipped with a warning (fail open). Kafka or PostgreSQL down: the API returns 503 (fail closed).
 - Field-level problems such as bad dates or missing text are not rejected here; the normaliser handles them.
+
+## As built (November 2026)
+
+The diagram is the design. The code differs in these places:
+
+| Design | Built |
+|---|---|
+| Redis rate limit per tenant (429) | Not built yet. The source alarm (ADR 0008) detects floods instead of blocking them. |
+| Field problems handled later by the normaliser | Normalisation runs in the API, before publishing. Unusable dates fall back to the received time and are flagged `created_at_estimated`; an item with no text at all gets 422. |
+| — | Every authenticated request (duplicates included) is counted per tenant, channel and minute in `arrivals`, for the source alarm. |
+| Size check before the key lookup | The body is read up to the limit + 1 byte only, then checked after the key; a huge body never sits in memory. |
+| 503 with `Retry-After` | 503 with `{"error": "temporarily unavailable, please retry"}`, without the header. |
+| — | The use case runs on a worker thread, so a slow Kafka or PostgreSQL does not hold up other requests (see `docs/load-test.md`). |

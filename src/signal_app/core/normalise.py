@@ -8,6 +8,7 @@ Common shape (a dict):
     source_id       the source's own id, or None
     text            cleaned text with emails, phone numbers and order numbers masked
     created_at      when the customer wrote it (ISO, UTC); falls back to received_at
+    created_at_estimated  True when created_at is that fallback, not the source's own time
     customer_ref    salted hash of the customer/author reference, or None
     market          UK / IE / DE / AT / FR, or None
     language        'en' / 'de' / 'fr' if the source says so, else None (enrichment detects it)
@@ -211,10 +212,21 @@ def _market_and_language(locale) -> tuple[str | None, str | None]:
     return market, language
 
 
-def _result(*, source_id, text, created_at, customer_ref, market, language, sentiment_hint) -> dict:
+def _created(value, received_at: datetime, market: str | None = None) -> tuple[datetime, bool]:
+    """(when the customer wrote it, whether that time is estimated). A missing or unusable time
+    ("yesterday", far future) falls back to when we received it, and is marked as estimated, so
+    the incident alarm can leave it out (ADR 0008)."""
+    moment = _parse_time(value, received_at, market)
+    if moment is None:
+        return received_at, True
+    return moment, False
+
+
+def _result(*, source_id, text, created_at, created_at_estimated, customer_ref, market, language,
+            sentiment_hint) -> dict:
     """The common shape every normaliser returns (see the top of this file)."""
     return {"source_id": source_id, "text": text, "created_at": created_at.isoformat(),
-            "customer_ref": customer_ref, "market": market, "language": language,
+            "created_at_estimated": created_at_estimated, "customer_ref": customer_ref, "market": market, "language": language,
             "sentiment_hint": sentiment_hint}
 
 
@@ -229,9 +241,8 @@ def support_ticket(tenant: str, payload: dict, received_at: datetime, salt: str)
     text = _text(ticket.get("description"), ticket.get("subject"))
     requester = _dict(ticket.get("requester"))
     market, language = _market_and_language(requester.get("locale"))
-    # A missing or implausible date ("yesterday", far future) falls back to when we received it.
-    created = _parse_time(ticket.get("created"), received_at, market) or received_at
-    return _result(source_id=_str_or_none(ticket.get("id")), text=text, created_at=created,
+    created, estimated = _created(ticket.get("created"), received_at, market)
+    return _result(source_id=_str_or_none(ticket.get("id")), text=text, created_at=created, created_at_estimated=estimated,
                    customer_ref=_hash_ref(tenant, requester.get("customer_ref"), salt),
                    market=market, language=language,
                    sentiment_hint=None)  # a ticket has no rating
@@ -245,8 +256,8 @@ def app_store(tenant: str, payload: dict, received_at: datetime, salt: str) -> d
     market = None
     if isinstance(territory, str):
         market = TERRITORY_TO_MARKET.get(territory.upper())
-    created = _parse_time(review.get("reviewed_at"), received_at, market) or received_at
-    return _result(source_id=_str_or_none(review.get("review_id")), text=text, created_at=created,
+    created, estimated = _created(review.get("reviewed_at"), received_at, market)
+    return _result(source_id=_str_or_none(review.get("review_id")), text=text, created_at=created, created_at_estimated=estimated,
                    customer_ref=_hash_ref(tenant, review.get("author"), salt),
                    market=market, language=None,  # not given: enrichment detects it
                    # Rating 1-5, sometimes the word "five": 1-2 negative, 3 neutral, 4-5 positive.
@@ -260,8 +271,8 @@ def nps_survey(tenant: str, payload: dict, received_at: datetime, salt: str) -> 
     if not isinstance(market, str) or market not in MARKETS:
         market = None
     # "dd/mm/yyyy hh:mm" in the market's local time.
-    created = _parse_time(response.get("submitted"), received_at, market) or received_at
-    return _result(source_id=_str_or_none(response.get("response_id")), text=text, created_at=created,
+    created, estimated = _created(response.get("submitted"), received_at, market)
+    return _result(source_id=_str_or_none(response.get("response_id")), text=text, created_at=created, created_at_estimated=estimated,
                    customer_ref=_hash_ref(tenant, response.get("customer_id"), salt),
                    market=market, language=None,
                    # Score 0-10 (sometimes "ten"): 0-6 detractor, 7-8 passive, 9-10 promoter.
@@ -279,13 +290,13 @@ def in_app(tenant: str, payload: dict, received_at: datetime, salt: str) -> dict
     text = _text(inner.get("message"))
     user = _dict(event.get("user"))
     market, language = _market_and_language(user.get("locale"))
-    created = _parse_time(event.get("ts"), received_at, market) or received_at
+    created, estimated = _created(event.get("ts"), received_at, market)
     mood = inner.get("mood")
     hint = None
     if isinstance(mood, str):
         hint = MOODS.get(mood.lower())
     # There is no id in this source: the idempotency key falls back to the header or payload hash.
-    return _result(source_id=None, text=text, created_at=created,
+    return _result(source_id=None, text=text, created_at=created, created_at_estimated=estimated,
                    customer_ref=_hash_ref(tenant, user.get("id"), salt),
                    market=market, language=language, sentiment_hint=hint)
 
@@ -296,8 +307,8 @@ def social(tenant: str, payload: dict, received_at: datetime, salt: str) -> dict
     language = None
     if isinstance(post.get("lang"), str) and post["lang"].lower() in {"en", "de", "fr"}:
         language = post["lang"].lower()
-    created = _parse_time(post.get("created_at"), received_at) or received_at  # no market: UTC
-    return _result(source_id=_str_or_none(post.get("post_id")), text=text, created_at=created,
+    created, estimated = _created(post.get("created_at"), received_at)  # no market: UTC
+    return _result(source_id=_str_or_none(post.get("post_id")), text=text, created_at=created, created_at_estimated=estimated,
                    customer_ref=_hash_ref(tenant, post.get("author_handle"), salt),
                    market=None,  # a post does not say which market it is from
                    language=language, sentiment_hint=None)

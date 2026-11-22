@@ -1,6 +1,7 @@
 """Kafka adapters: the publisher used by the API and the consumer loop used by the worker."""
 import json
 import logging
+import time
 from typing import Callable
 
 from confluent_kafka import Consumer, KafkaException, Producer, TopicPartition
@@ -59,6 +60,7 @@ def consume_forever(handle: Callable[[bytes], None], bootstrap: str | None = Non
     consumer = Consumer({"bootstrap.servers": bootstrap or config.KAFKA_BOOTSTRAP, "group.id": group_id,
                          "auto.offset.reset": "earliest", "enable.auto.commit": False})
     consumer.subscribe([topic or config.TOPIC_RAW])
+    failures = 0  # retries in a row; reset as soon as a message goes through
     while True:
         message = consumer.poll(1.0)
         if message is None:  # nothing new in the last second
@@ -66,11 +68,22 @@ def consume_forever(handle: Callable[[bytes], None], bootstrap: str | None = Non
         if message.error():
             log.warning("kafka error: %s", message.error())
             continue
-        handle_one(consumer, message, handle)
+        if handle_one(consumer, message, handle):
+            failures = 0
+        else:
+            failures += 1
+            time.sleep(retry_delay(failures))  # give the database time to come back
 
 
-def handle_one(consumer, message, handle: Callable[[bytes], None]) -> None:
-    """Process one message, then either commit it (done or unreadable) or go back to it (retry)."""
+def retry_delay(failures: int) -> float:
+    """Seconds to wait before retrying: 0.5, 1, 2, 4 ... and never more than 30.
+    Without a pause, a database outage would make the worker retry thousands of times a second."""
+    return min(30.0, 0.5 * 2 ** (failures - 1))
+
+
+def handle_one(consumer, message, handle: Callable[[bytes], None]) -> bool:
+    """Process one message, then either commit it (done or unreadable) or go back to it (retry).
+    Returns False when it should be retried."""
     try:
         handle(message.value())
     except (ValueError, KeyError, TypeError):
@@ -82,5 +95,6 @@ def handle_one(consumer, message, handle: Callable[[bytes], None]) -> None:
         log.exception("database problem, will retry")
         same_message = TopicPartition(message.topic(), message.partition(), message.offset())
         consumer.seek(same_message)
-        return
+        return False
     consumer.commit(message)
+    return True

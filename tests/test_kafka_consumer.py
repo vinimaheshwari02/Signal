@@ -3,7 +3,7 @@ from unittest.mock import create_autospec
 
 from confluent_kafka import Consumer, Message, TopicPartition
 
-from signal_app.adapters.kafka import handle_one
+from signal_app.adapters.kafka import handle_one, retry_delay
 
 
 def kafka_message():
@@ -18,7 +18,7 @@ def kafka_message():
 
 def test_a_processed_message_is_committed():
     consumer, message, seen = create_autospec(Consumer, instance=True), kafka_message(), []
-    handle_one(consumer, message, seen.append)
+    assert handle_one(consumer, message, seen.append) is True
     assert seen == [b'{"text": "hi"}']
     consumer.commit.assert_called_once_with(message)
     consumer.seek.assert_not_called()
@@ -30,7 +30,7 @@ def test_an_unreadable_message_is_skipped_and_committed():
     def unreadable(_value):
         raise ValueError("not JSON")
 
-    handle_one(consumer, message, unreadable)
+    assert handle_one(consumer, message, unreadable) is True   # skipped, so not retried
     consumer.commit.assert_called_once_with(message)
     consumer.seek.assert_not_called()
 
@@ -41,8 +41,13 @@ def test_a_database_problem_goes_back_to_the_same_message_without_committing():
     def database_down(_value):
         raise RuntimeError("database is down")
 
-    handle_one(consumer, message, database_down)   # must not raise: the worker keeps running
+    assert handle_one(consumer, message, database_down) is False   # must not raise: retry instead
     consumer.commit.assert_not_called()
     (position,), _ = consumer.seek.call_args
     assert isinstance(position, TopicPartition)
     assert (position.topic, position.partition, position.offset) == ("feedback.raw", 2, 41)
+
+
+def test_retries_wait_longer_each_time_up_to_thirty_seconds():
+    assert [retry_delay(n) for n in (1, 2, 3, 4)] == [0.5, 1.0, 2.0, 4.0]
+    assert retry_delay(20) == 30.0

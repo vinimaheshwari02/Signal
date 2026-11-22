@@ -1,4 +1,3 @@
-import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -62,3 +61,19 @@ def test_list_and_validation(wired):
     assert len(items) == 1 and items[0]["text"] == "Parcel never arrived"
     assert client.get("/v1/feedback?limit=0", headers=H).status_code == 422
     assert client.get("/health").json() == {"status": "ok"}
+
+
+def test_a_body_over_the_limit_is_413_even_when_very_large(wired):
+    client, publisher, _ = wired
+    huge = b'{"ticket": {"description": "' + b"x" * 5_000_000 + b'"}}'
+    assert client.post(URL, content=huge, headers=H).status_code == 413
+    assert publisher.messages == []
+
+
+def test_a_body_exactly_at_the_limit_is_read_in_full(wired):
+    client, _, _ = wired
+    body = b'{"ticket": {"id": "Z", "description": "' + b"x" * 900 + b'"}}'
+    padded = body + b" " * (1024 - len(body))   # whitespace after the JSON is still valid JSON
+    assert len(padded) == 1024
+    assert client.post(URL, content=padded, headers=H).status_code == 202
+

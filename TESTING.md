@@ -9,13 +9,19 @@ uv sync
 uv run pytest
 ```
 
-144 tests (8 integration tests are skipped unless level 4 is set up). They cover:
+218 tests (14 integration tests are skipped unless level 4 is set up). They cover:
 - `test_normalise_channels.py` – each of the 5 channels' messy-data rules (time formats, word-number
   ratings, PII masking, missing text -> rejected).
 - `test_enrich.py` – language, sentiment, kind, area and topic for en/de/fr.
 - `test_process.py` – all 5 channels through API -> worker using in-memory fakes.
 - `test_http.py`, `test_ingest_usecase.py`, `test_ids.py` – status codes, idempotency, ids.
 - `test_kafka_consumer.py` – the worker commits, skips or retries one Kafka message (no broker needed).
+- `test_themes.py` – every rule of the impact score: unique customers, the 7-day window, severity per
+  market and area, evidence, trend, ordering.
+- `test_theme_jobs.py` – the scheduler's recompute, a failed run keeping the last ranking, `GET /v1/themes`.
+- `test_alarms.py`, `test_alarm_jobs.py` – the three alarm checks, the quiet period, counting arrivals at
+  the API (duplicates included), `GET /v1/alerts`, the estimated-time flag.
+- `test_kafka_consumer.py` also checks the retry pause.
 - `test_architecture.py` – fails if `core/` imports FastAPI, Kafka or psycopg.
 
 ## 2. Check the rules against the real data pack (no Docker)
@@ -77,6 +83,40 @@ Each item should have `sentiment`, `kind`, `area`, `topic`, `language`, with the
 number and order number masked (`[email]`, `[phone]`, `[order]`) and `created_at` in UTC.
 Ridgeline's key must never return Harbour Home's rows. Worker logs: `docker compose logs -f worker`.
 
+### Themes
+
+```bash
+uv run python scripts/load_business_daily.py path/to/business_daily.csv
+docker compose logs scheduler          # "ranked N themes as of 2026-10-19..."
+curl -H "X-Api-Key: $KEY" localhost:8000/v1/themes
+curl -H "X-Api-Key: $KEY" "localhost:8000/v1/themes?as_of=2026-09-22"
+```
+The scheduler only ranks what the worker has stored, so replay the data pack first (level 5).
+With the whole pack, Ridgeline's top theme as of 2026-10-19 is `delivery|delay` (rising, late
+deliveries about 1.6x normal in DE); as of 2026-09-22, `payments|payment_failed` is second.
+A database created before themes existed needs `migrations/002_themes.sql` once (see README).
+
+### Alarms
+
+```bash
+docker compose exec -T postgres psql -U signal -d signal < migrations/003_alarms.sql   # existing database only
+python scripts/alarm_backtest.py path/to/feedback_all.jsonl path/to/business_daily.csv
+```
+The backtest needs no Docker and shows every alarm the 90 days would have raised: the resend flood
+on 29 September, the payment outage on 21 September and the late deliveries in DE and AT.
+Live, the source alarm fires during any fast replay (a replay at `--rate 200` *is* a flood), and
+the decline alarm fires once for `AS_OF`. The incident alarm counts by the time customers wrote the
+feedback, so it cannot fire while replaying old data: use the backtest for it.
+`GET /v1/alerts` lists your tenant's alarms; `docker compose logs scheduler | grep ALARM` shows all.
+
+### Load test
+
+```bash
+python3 path/to/replay.py --keys keys.json --burst 5000 --concurrency 20
+```
+It prints requests per second and latency percentiles. Clear `idempotency_keys` first if you want
+every request to be new. Results and method: `docs/load-test.md`.
+
 ## 4. Integration tests against real PostgreSQL
 
 With the compose Postgres running (check `docker-compose.yml` for the ports and passwords):
@@ -86,7 +126,7 @@ TEST_OWNER_URL=postgresql://signal:signal@localhost:5432/signal \
 TEST_API_URL=postgresql://signal_api:<password>@localhost:5432/signal \
 uv run pytest tests/integration
 ```
-Proves: POST -> worker -> GET, duplicates, nothing saved when publishing fails, tenant isolation by
+Proves: POST -> worker -> GET, duplicates, the theme ranking and its tenant isolation, nothing saved when publishing fails, tenant isolation by
 row-level security, the API role cannot write feedback, repeated saves are harmless.
 
 ## 5. Replay the data pack against the running stack

@@ -1,4 +1,4 @@
-# Local stack: Redpanda (Kafka API), PostgreSQL, API, worker.
+# Local stack: Redpanda (Kafka API), PostgreSQL, API, worker, scheduler.
 services:
   redpanda:
     image: redpandadata/redpanda:v24.2.7
@@ -12,6 +12,16 @@ services:
       test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
       interval: 5s
       retries: 20
+
+  # Creates the feedback.raw topic, then exits. Running it again is harmless.
+  redpanda-init:
+    image: redpandadata/redpanda:v24.2.7
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - rpk topic create feedback.raw --partitions 3 -X brokers=redpanda:9092
+        || rpk topic describe feedback.raw -X brokers=redpanda:9092
+    depends_on:
+      redpanda: {condition: service_healthy}
 
   postgres:
     image: postgres:16
@@ -36,9 +46,12 @@ services:
       # API uses the restricted role (row-level security applies)
       DATABASE_URL: postgresql://signal_api:signal_api@postgres:5432/signal
       WORKER_DATABASE_URL: postgresql://signal:signal@postgres:5432/signal
+      # The data pack ends on 2026-10-18, so rank the week before 2026-10-19 by default.
+      # Start with AS_OF= docker compose up ... to rank the week before "now" instead.
+      AS_OF: ${AS_OF-2026-10-19}
     ports: ["8000:8000"]
     depends_on:
-      redpanda: {condition: service_healthy}
+      redpanda-init: {condition: service_completed_successfully}
       postgres: {condition: service_healthy}
 
   worker:
@@ -46,7 +59,15 @@ services:
     command: python -m signal_app.entrypoints.worker
     environment: *env
     depends_on:
-      redpanda: {condition: service_healthy}
+      redpanda-init: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
+
+  # Recomputes the themes every 5 minutes (ADR 0007). Run only one.
+  scheduler:
+    build: .
+    command: python -m signal_app.entrypoints.scheduler
+    environment: *env
+    depends_on:
       postgres: {condition: service_healthy}
 
 volumes:

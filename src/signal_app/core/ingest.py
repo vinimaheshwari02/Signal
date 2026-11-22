@@ -6,18 +6,19 @@ from .errors import BadJson, Forbidden, PayloadTooLarge, UnknownChannel
 from .ids import feedback_id, idempotency_key
 from .models import IngestResult
 from .normalise import NORMALISERS
-from .ports import ApiKeyDirectory, Clock, FeedbackPublisher, KeyStore
+from .ports import ApiKeyDirectory, ArrivalCounter, Clock, FeedbackPublisher, KeyStore
 
 
 class IngestFeedback:
     def __init__(self, publisher: FeedbackPublisher, key_store: KeyStore, keys: ApiKeyDirectory,
-                 clock: Clock, salt: str, max_body_bytes: int):
+                 clock: Clock, salt: str, max_body_bytes: int, arrivals: ArrivalCounter | None = None):
         self.publisher = publisher
         self.key_store = key_store
         self.keys = keys
         self.clock = clock
         self.salt = salt
         self.max_body_bytes = max_body_bytes
+        self.arrivals = arrivals  # for the source alarm (ADR 0008); None in most tests
 
     def run(self, channel: str, api_key: str | None, raw_body: bytes,
             idempotency_header: str | None) -> IngestResult:
@@ -26,6 +27,10 @@ class IngestFeedback:
         tenant, key_channel = authenticate(self.keys, api_key)
         if key_channel != channel:
             raise Forbidden("this API key is not valid for this channel")
+        if self.arrivals is not None:
+            # Every authenticated request counts, also duplicates and bad bodies: a source
+            # resending or sending garbage is exactly what the source alarm looks for.
+            self.arrivals.record(tenant, channel, self.clock.now())
 
         if len(raw_body) > self.max_body_bytes:
             raise PayloadTooLarge("body too large")

@@ -124,3 +124,24 @@ Content-Type: application/json
   "post_id": "1",
   "text": "   "
 }
+
+
+### Themes: the latest ranking from the scheduler (needs business_daily loaded and some feedback)
+GET {{host}}/v1/themes
+X-Api-Key: {{support_ticket}}
+
+### Themes: look back at another week, e.g. the payments problems around 21 September
+GET {{host}}/v1/themes?as_of=2026-09-22&limit=5
+X-Api-Key: {{support_ticket}}
+
+### Alerts: the alarms that fired for your tenant (needs migrations/003_alarms.sql)
+GET {{host}}/v1/alerts
+X-Api-Key: {{support_ticket}}
+
+### The feedback behind a theme (delivery / delay)
+GET {{host}}/v1/feedback?area=delivery&topic=failed&limit=20
+X-Api-Key: {{support_ticket}}
+
+### Delivery themes with customers in Germany
+GET {{host}}/v1/themes?area=delivery&market=DE&limit=5
+X-Api-Key: {{support_ticket}}

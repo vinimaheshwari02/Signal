@@ -15,7 +15,7 @@ Raw payloads are not stored in PostgreSQL (data minimisation). The ingest log th
 
 Use Apache Kafka as the durable ingest log, with Redpanda as the Kafka-compatible broker for local development.
 
-- The API publishes to `feedback.ingested` with `acks=all` and waits for confirmation before returning `202`.
+- The API publishes to `feedback.raw` with `acks=all` and waits for confirmation before returning `202`.
 - Topics are keyed by `feedback_id` so load spreads evenly across partitions.
 - Raw payloads are retained for a fixed window (7 days) and act as the replay source.
 - Workers form a consumer group; parallelism is capped by the partition count.

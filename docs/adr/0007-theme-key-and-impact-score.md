@@ -42,3 +42,20 @@ Linked rates by area: delivery (late over due), payments (failures over attempts
 - All topics in an area share the area's severity; customer counts separate them.
 - Severity updates daily, because business numbers are daily; sudden incidents are caught earlier by the alarms (ADR 0008).
 - Taxonomy changes rename or split themes, so they need care.
+
+## Known limitations and next steps
+
+"Normal" is a rolling baseline: the 4 weeks before the week being scored, per tenant, market and
+area. That keeps it simple and lets each market be judged against its own recent past, but it has
+limits:
+
+| Limitation | What happens | Possible next step |
+|---|---|---|
+| A long problem becomes normal | After a few weeks of bad numbers, the baseline is bad too, so severity drifts back towards 1 even though customers keep complaining. The customer count keeps the theme ranked, but the business evidence fades. | Exclude weeks that were flagged from the baseline, or compare with a longer or fixed reference period. |
+| Not enough history | At the start of the data (late July) there are fewer than 4 weeks before. Whatever days exist are used; with none, severity is 1 and no evidence is shown. | Show how many days the baseline is based on, and hide the evidence below a minimum. |
+| Seasons | A busy period (for example December) is compared with the quieter weeks before it, so normal seasonal stress looks like a problem. | Compare with the same weeks of the previous year once a year of data exists. |
+| Small changes look like evidence | Any market slightly worse than normal (for example 1.01x) is listed as evidence, although that is noise. | Only show evidence above a threshold, such as 1.1x. |
+| One severity per area | All topics in an area share it: late deliveries also boost `delivery/missing_parcel`. | Link rates to topics where the business has a matching number. |
+| Posts without a market | Social posts carry no market, so they always have severity 1. | Infer the market from the language or the account when it is reliable. |
+| The extra-order value is an estimate | It uses the week's average order value, not the real orders, and late is not lost: most of those customers still got their order. | Keep it as evidence only, never as the score. |
+

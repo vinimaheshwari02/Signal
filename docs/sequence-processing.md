@@ -7,7 +7,7 @@ How a worker turns a raw message into a labelled feedback item, and how themes a
 ```mermaid
 sequenceDiagram
     autonumber
-    participant K as Kafka (feedback.ingested)
+    participant K as Kafka (feedback.raw)
     participant W as Worker
     participant P as PostgreSQL
     participant KE as Kafka (feedback.enriched)
@@ -72,3 +72,22 @@ sequenceDiagram
 - A message that exhausts its retries lands in the dead-letter topic so it cannot block its partition; a non-empty DLQ raises an operational alert.
 - If a theme run fails, the last good rankings stay in place and a stale-rankings alert fires when they get too old.
 - After any alarm, the same subject stays quiet for a fixed period.
+
+## As built (November 2026)
+
+The diagrams are the design. The code differs in these places:
+
+| Design | Built |
+|---|---|
+| The worker normalises and hashes | The API does that before publishing; the worker only enriches and saves. |
+| `feedback.enriched` topic | Not built; nothing consumes it yet. |
+| Retry topic with backoff, then `feedback.dlq` | A database failure is retried in place: the consumer goes back to the same message and waits 0.5 s, doubling up to 30 s. An unreadable message is logged and skipped; a dead-letter topic is still to do. |
+| Themes cached in Redis | Not built; the API reads the `themes` table directly (10–25 ms). |
+| Alerts exposed to Prometheus and sent to people | Alerts are stored in `alerts`, logged by the scheduler and listed by `GET /v1/alerts`. Nothing is sent yet ("shadow mode", ADR 0008). |
+| Scheduler loads business numbers daily | `scripts/load_business_daily.py` loads the CSV; the decline check runs once per day for the themes' `AS_OF` date. |
+
+What runs when, in `entrypoints/scheduler.py`:
+
+- every minute: source flood (from `arrivals`) and incident (from problem items with a real time)
+- every 5 minutes: themes, replacing the whole `themes` table in one transaction
+- once a day: slow decline, from `business_daily`

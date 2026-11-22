@@ -37,3 +37,37 @@ Rules:
 - Fixed thresholds can be too loud for naturally busy themes and too quiet for small tenants; tuning is ongoing work, and alarms should run in shadow mode before they notify anyone.
 - The quiet period can delay a notification about a genuinely new phase of an ongoing incident; the stored history keeps the full record.
 - Alarm checks run in the scheduler, so scheduler availability matters (see ADR 0005).
+
+## Tuning on the data pack
+
+`scripts/alarm_backtest.py` replays all 90 days through the same checks, minute by minute.
+With the starting limits (source 50 requests per 5 minutes, incident 8 customers per 15 minutes,
+decline 1.5x, quiet period 30 minutes) it finds exactly the known events and nothing else:
+
+| Alarm | Fired | What it was |
+|---|---|---|
+| source_flood | 29 Sep 10:14 Ridgeline, 10:16 Harbour Home (support tickets) | A resend: 598 of the 612 items in that window had been sent before |
+| incident | 21 Sep 14:12 and 14:42, Ridgeline payments / payment_failed, UK | A payment outage: up to 18 customers in 15 minutes (normal: at most 3) |
+| decline | Ridgeline delivery DE (32 days from 18 Sep, worst 2.03x) and AT (8 days, worst 1.54x) | Late deliveries rising in Germany and Austria |
+
+Normal traffic stays far below the limits: even at source 10, incident 5 and decline 1.3 there are
+no false alarms, only extra alarms about the same events (other markets in the payment outage,
+payment rates in the week after it). The limits can therefore be lowered later if the alarms
+should fire earlier.
+
+Two lessons from the data:
+
+- A resend flood consists mostly of duplicates, which are never stored again. The source alarm
+  therefore counts requests as they arrive at the API (`arrivals` table), not stored feedback.
+- Many items legitimately have a written time equal to their received time, so an estimated time
+  cannot be recognised afterwards. The normaliser now records it (`created_at_estimated`), and the
+  incident alarm leaves those items out.
+
+## Known limitations and next steps
+
+| Limitation | Possible next step |
+|---|---|
+| Nothing is sent yet: alerts are stored, logged and listed by `GET /v1/alerts` | Send to Slack or e-mail once the alarms have run in shadow mode for a while |
+| The incident alarm counts by the time customers wrote the feedback, so it cannot fire while replaying old data; `alarm_backtest.py` shows it instead | None needed for real traffic, where feedback is written minutes before it arrives |
+| The decline alarm fires again every day while the decline lasts | Fire once per episode, then a daily reminder in a digest |
+| Fixed limits for all tenants | Per-tenant limits, or limits relative to each source's normal volume |
