@@ -1,0 +1,79 @@
+# CI: on every push and pull request, check the code and run all tests.
+# Two jobs run side by side:
+#   test   - lint + all tests, including the ones that need a real PostgreSQL
+#   docker - the Docker image still builds (the same image the api, worker and scheduler use)
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# A new push to the same branch cancels the run that is still going for the old one.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # A throwaway PostgreSQL next to the job, the same version as docker-compose.yml.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: signal
+          POSTGRES_PASSWORD: signal
+          POSTGRES_DB: signal
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U signal"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      # Setting these two switches the integration tests on (they are skipped otherwise).
+      TEST_OWNER_URL: postgresql://signal:signal@localhost:5432/signal
+      TEST_API_URL: postgresql://signal_api:signal_api@localhost:5432/signal
+
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Install uv and Python 3.12
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install the project and dev tools
+        run: uv sync
+
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
+      - name: Create the tables (run the migrations in order)
+        env:
+          PGPASSWORD: signal
+        run: |
+          for f in migrations/*.sql; do
+            echo "applying $f"
+            psql -v ON_ERROR_STOP=1 -h localhost -U signal -d signal -f "$f"
+          done
+
+      - name: Run all tests
+        run: uv run pytest -ra
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Check docker-compose.yml is valid
+        run: docker compose config --quiet
+
+      - name: Build the image
+        run: docker build -t signal-app:ci .

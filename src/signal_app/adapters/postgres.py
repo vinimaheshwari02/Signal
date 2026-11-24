@@ -194,7 +194,7 @@ class PostgresThemeStore:
                     cursor.executemany(INSERT_THEME_SQL, rows)
 
     def latest(self, tenant: str, limit: int, area: str | None = None,
-               market: str | None = None) -> RankedThemes | None:
+               market: str | None = None, topic: str | None = None) -> RankedThemes | None:
         """Filters work like in PostgresFeedbackRepository.list: None matches every row.
         `customers_by_market ? market` is true when the jsonb object has that market as a key."""
         rows = _read(self.url,
@@ -204,9 +204,11 @@ class PostgresThemeStore:
                         FROM themes
                         WHERE tenant_id = %(tenant)s
                           AND (%(area)s::text IS NULL OR area = %(area)s)
+                          AND (%(topic)s::text IS NULL OR topic = %(topic)s)
                           AND (%(market)s::text IS NULL OR customers_by_market ? %(market)s)
                         ORDER BY score DESC, theme_id LIMIT %(limit)s""",
-                     {"tenant": tenant, "limit": limit, "area": area, "market": market}, tenant)
+                     {"tenant": tenant, "limit": limit, "area": area, "topic": topic,
+                      "market": market}, tenant)
         if not rows:
             return self._empty_ranking(tenant)
         themes = []

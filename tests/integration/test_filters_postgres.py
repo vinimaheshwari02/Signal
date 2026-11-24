@@ -173,3 +173,14 @@ def test_theme_filters_with_as_of(client):
     assert ids(client, "/v1/themes?as_of=2026-10-19&market=UK") == ["it-fl-a|delivery|delay",
                                                                    "it-fl-a|payments|declined",
                                                                    "it-fl-a|delivery|missing_parcel"]
+
+
+def test_topic_filter_on_the_stored_ranking_runs_in_sql(client):
+    assert ids(client, "/v1/themes?area=delivery&topic=delay") == ["it-fl-a|delivery|delay"]
+    assert ids(client, "/v1/themes?topic=missing_parcel") == ["it-fl-a|delivery|missing_parcel"]
+    assert ids(client, "/v1/themes?area=payments&topic=declined", tenant="it-fl-b") == ["it-fl-b|payments|declined"]
+
+
+def test_topic_filter_with_as_of_against_postgres(client):
+    assert ids(client, "/v1/themes?as_of=2026-10-19&area=delivery&topic=missing_parcel") == [
+        "it-fl-a|delivery|missing_parcel"]

@@ -77,6 +77,13 @@ The scheduler clears the affected cache entries after it recomputes themes. If R
 | `redis` | Query cache and rate-limit counters | none | internal |
 | `prometheus` | Scrapes metrics, evaluates alert rules | api, worker, scheduler | UI, published to host |
 
+## Build and release (CI)
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push and pull request: lint, all tests
+against a real PostgreSQL with the migrations applied, a `docker-compose.yml` check and the image
+build. Nothing is deployed automatically yet. The next step (CD) would push the image to a registry
+and roll it out to Kubernetes after the tests pass on `main`.
+
 ## Notes
 
 - Only the API and Prometheus UI are published to the host. Datastores stay on the internal network.

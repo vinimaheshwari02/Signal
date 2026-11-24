@@ -139,9 +139,17 @@ GET {{host}}/v1/alerts
 X-Api-Key: {{support_ticket}}
 
 ### The feedback behind a theme (delivery / delay)
-GET {{host}}/v1/feedback?area=delivery&topic=failed&limit=20
+GET {{host}}/v1/feedback?area=delivery&topic=due&limit=5
 X-Api-Key: {{support_ticket}}
 
 ### Delivery themes with customers in Germany
 GET {{host}}/v1/themes?area=delivery&market=DE&limit=5
+X-Api-Key: {{support_ticket}}
+
+### One theme: how is delivery delay doing?
+GET {{host}}/v1/themes?area=delivery&topic=delay
+X-Api-Key: {{support_ticket}}
+
+### The same theme a month earlier
+GET {{host}}/v1/themes?area=delivery&topic=delay&as_of=2026-09-22
 X-Api-Key: {{support_ticket}}

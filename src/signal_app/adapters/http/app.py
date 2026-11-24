@@ -154,14 +154,15 @@ def create_app(ingest: IngestFeedback, list_feedback: ListFeedback,
                          limit: int = Query(20, ge=1, le=100),
                          as_of: datetime | None = None,
                          area: str | None = Query(None, max_length=MAX_FILTER_LENGTH),
+                         topic: str | None = Query(None, max_length=MAX_FILTER_LENGTH),
                          market: str | None = Query(None, max_length=MAX_FILTER_LENGTH)):
             """Highest impact first. Without as_of: the latest ranking from the scheduler.
             With as_of (e.g. 2026-09-22): the ranking for the week before that moment.
-            area / market keep only matching themes (before limit); a theme's numbers still
-            cover all its markets."""
+            area / topic / market keep only matching themes (before limit); area + topic is one
+            theme. A theme's numbers still cover all its markets."""
             if as_of is not None and as_of.tzinfo is None:
                 as_of = as_of.replace(tzinfo=timezone.utc)  # a date or time without zone is UTC
-            ranked = list_themes.run(x_api_key, limit, as_of, area=area, market=market)
+            ranked = list_themes.run(x_api_key, limit, as_of, area=area, market=market, topic=topic)
             return ranking_to_json(ranked)
 
     if list_alerts is not None:

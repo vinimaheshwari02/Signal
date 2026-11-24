@@ -130,7 +130,7 @@ class InMemoryThemeStore:
             raise RuntimeError("database is down")
         self.ranked = ranked
 
-    def latest(self, tenant, limit, area=None, market=None):
+    def latest(self, tenant, limit, area=None, market=None, topic=None):
         if self.ranked is None:
             return None
         mine = []
@@ -143,6 +143,8 @@ class InMemoryThemeStore:
         matching = []
         for theme in mine:
             if area is not None and theme.area != area:
+                continue
+            if topic is not None and theme.topic != topic:
                 continue
             if market is not None and market not in theme.customers_by_market:
                 continue

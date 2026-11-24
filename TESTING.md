@@ -9,7 +9,7 @@ uv sync
 uv run pytest
 ```
 
-218 tests (14 integration tests are skipped unless level 4 is set up). They cover:
+278 tests (37 integration tests are skipped unless level 4 is set up; CI runs all 278). They cover:
 - `test_normalise_channels.py` – each of the 5 channels' messy-data rules (time formats, word-number
   ratings, PII masking, missing text -> rejected).
 - `test_enrich.py` – language, sentiment, kind, area and topic for en/de/fr.
@@ -146,6 +146,17 @@ and every accepted line was stored with area/kind/sentiment. Check in SQL:
 select area, count(*) from feedback group by 1 order by 2 desc;
 select kind, count(*) from feedback group by 1;
 ```
+
+## 6. CI on GitHub (automatic)
+
+`.github/workflows/ci.yml` runs on every push and pull request, in two jobs side by side:
+
+- `test`: starts a PostgreSQL 16 container, applies `migrations/*.sql` in order, runs `ruff check .`
+  and then all 278 tests, with the integration tests switched on (no skips).
+- `docker`: checks `docker-compose.yml` is valid and builds the image.
+
+Results are in the repository's Actions tab, and the badge at the top of the README shows the latest
+run on `main`. To reproduce the `test` job locally, use level 4 above against an empty database.
 
 ## Not tested yet
 Kafka/Redpanda and Docker were not available where I built this, so levels 3 and 5 against the real

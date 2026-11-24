@@ -1,5 +1,7 @@
 # Signal
 
+[![CI](https://github.com/vinimaheshwari02/signal/actions/workflows/ci.yml/badge.svg)](https://github.com/vinimaheshwari02/signal/actions/workflows/ci.yml)
+
 Feedback: An Analyzer for feedback
 
 Signal collects customer feedback from several channels for several retailers (tenants), cleans it

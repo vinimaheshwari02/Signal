@@ -54,10 +54,10 @@ class ThemeStore(Protocol):
         """Swap the stored ranking for this one in a single step: on failure the old one stays."""
 
     def latest(self, tenant: str, limit: int, area: str | None = None,
-               market: str | None = None) -> RankedThemes | None:
+               market: str | None = None, topic: str | None = None) -> RankedThemes | None:
         """The stored ranking for one tenant, highest score first. None before the first run.
-        `area` keeps only themes of that area; `market` keeps only themes with customers in that
-        market. Both are applied before `limit`. If the ranking exists but no theme matches,
+        `area` and `topic` keep only themes of that area or topic; `market` keeps only themes with
+        customers in that market. All are applied before `limit`. If the ranking exists but no theme matches,
         the result has the ranking's as_of and computed_at and an empty list of themes."""
 
 

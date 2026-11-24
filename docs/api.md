@@ -79,6 +79,7 @@ The tenant's themes, highest impact first (ADR 0007).
 | `limit` | 20 | 1 to 100 |
 | `as_of` | – | Without it: the latest ranking from the scheduler. With it (a date or time): the ranking for the week before that moment, computed on the spot |
 | `area` | – | Only themes of this area, e.g. `delivery` |
+| `topic` | – | Only themes of this topic, e.g. `delay`. With `area` it names exactly one theme |
 | `market` | – | Only themes with customers in this market (a key of `customers_by_market`), e.g. `DE` |
 
 The filters work with and without `as_of` and are applied before `limit`, so
@@ -88,7 +89,12 @@ If nothing matches, `items` is empty and `as_of` / `computed_at` still show the 
 
 ```
 GET /v1/themes?area=delivery&market=DE&limit=5
+GET /v1/themes?area=delivery&topic=delay                     # one theme: how is it doing?
+GET /v1/themes?area=delivery&topic=delay&as_of=2026-09-22    # the same theme a month earlier
 ```
+
+`?area=delivery&topic=delay` on themes and on `GET /v1/feedback` pair up: the first shows the
+theme's score and evidence, the second the messages behind it.
 
 ```json
 {"as_of": "2026-10-19T00:00:00+00:00", "computed_at": "2026-11-16T20:20:00+00:00",

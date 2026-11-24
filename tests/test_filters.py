@@ -243,3 +243,33 @@ def test_theme_filters_with_as_of_are_applied_before_limit(themes_client):
 
 def test_keep_matching_themes_without_filters_keeps_everything():
     assert keep_matching_themes(STORED.themes, area=None, market=None) == STORED.themes
+
+
+# ---------- topic filter on themes ----------
+
+def test_area_and_topic_give_exactly_one_stored_theme(themes_client):
+    assert theme_ids(themes_client, "?area=delivery&topic=delay") == ["tenant-a|delivery|delay"]
+
+
+def test_topic_alone_on_the_stored_ranking(themes_client):
+    assert theme_ids(themes_client, "?topic=missing_parcel") == ["tenant-a|delivery|missing_parcel"]
+
+
+def test_topic_and_market_together(themes_client):
+    assert theme_ids(themes_client, "?area=delivery&topic=delay&market=DE") == []   # delay has UK only
+    assert theme_ids(themes_client, "?area=delivery&topic=delay&market=UK") == ["tenant-a|delivery|delay"]
+
+
+def test_topic_filter_with_as_of(themes_client):
+    assert theme_ids(themes_client, "?as_of=2026-10-19&area=delivery&topic=missing_parcel") == [
+        "tenant-a|delivery|missing_parcel"]
+
+
+def test_topic_filter_never_shows_another_tenant(themes_client):
+    # tenant-b's delivery|delay scores higher, but tenant-a's key must only see its own.
+    assert theme_ids(themes_client, "?area=delivery&topic=delay") == ["tenant-a|delivery|delay"]
+
+
+def test_an_overlong_topic_is_rejected(themes_client):
+    response = themes_client.get("/v1/themes?topic=" + "x" * 51, headers=HEADERS_A)
+    assert response.status_code == 422
