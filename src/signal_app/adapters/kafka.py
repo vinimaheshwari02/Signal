@@ -8,6 +8,7 @@ from confluent_kafka import Consumer, KafkaException, Producer, TopicPartition
 
 from ..core.errors import PublishError
 from ..shared import config
+from . import metrics
 
 log = logging.getLogger("signal.kafka")
 
@@ -61,7 +62,11 @@ def consume_forever(handle: Callable[[bytes], None], bootstrap: str | None = Non
                          "auto.offset.reset": "earliest", "enable.auto.commit": False})
     consumer.subscribe([topic or config.TOPIC_RAW])
     failures = 0  # retries in a row; reset as soon as a message goes through
+    lag_checked = 0.0
     while True:
+        if time.monotonic() - lag_checked >= LAG_CHECK_SECONDS:
+            update_lag(consumer)
+            lag_checked = time.monotonic()
         message = consumer.poll(1.0)
         if message is None:  # nothing new in the last second
             continue
@@ -75,6 +80,29 @@ def consume_forever(handle: Callable[[bytes], None], bootstrap: str | None = Non
             time.sleep(retry_delay(failures))  # give the database time to come back
 
 
+LAG_CHECK_SECONDS = 10
+
+
+def update_lag(consumer) -> None:
+    """Lag = messages in Kafka this worker has not processed yet, per partition it owns.
+    For each partition: the end of the log (high watermark) minus where this worker is."""
+    try:
+        assigned = consumer.assignment()
+        if not assigned:
+            return
+        committed = {p.partition: p.offset for p in consumer.committed(assigned, timeout=1.0)}
+        for partition in consumer.position(assigned):
+            low, high = consumer.get_watermark_offsets(partition, timeout=1.0)
+            at = partition.offset
+            if at < 0:  # nothing read since start-up: continue from the last commit
+                at = committed.get(partition.partition, -1)
+            if at < 0:  # never committed either: everything still in the log is waiting
+                at = low
+            metrics.WORKER_LAG.labels(str(partition.partition)).set(max(0, high - at))
+    except KafkaException:
+        log.warning("could not read the consumer lag", exc_info=True)
+
+
 def retry_delay(failures: int) -> float:
     """Seconds to wait before retrying: 0.5, 1, 2, 4 ... and never more than 30.
     Without a pause, a database outage would make the worker retry thousands of times a second."""
@@ -84,15 +112,20 @@ def retry_delay(failures: int) -> float:
 def handle_one(consumer, message, handle: Callable[[bytes], None]) -> bool:
     """Process one message, then either commit it (done or unreadable) or go back to it (retry).
     Returns False when it should be retried."""
+    started = time.perf_counter()
     try:
         handle(message.value())
+        metrics.WORKER_MESSAGES.labels("saved").inc()
+        metrics.WORKER_DURATION.observe(time.perf_counter() - started)
     except (ValueError, KeyError, TypeError):
         # Unreadable: retrying cannot help, so log it and move on.  TODO: dead-letter topic
         log.exception("skipping unreadable message at offset %s", message.offset())
+        metrics.WORKER_MESSAGES.labels("skipped").inc()
     except Exception:
         # A temporary problem such as the database being down: do not commit, and move the
         # consumer back to this message so the next poll returns it again.
         log.exception("database problem, will retry")
+        metrics.WORKER_MESSAGES.labels("retry").inc()
         same_message = TopicPartition(message.topic(), message.partition(), message.offset())
         consumer.seek(same_message)
         return False

@@ -9,7 +9,7 @@ uv sync
 uv run pytest
 ```
 
-278 tests (37 integration tests are skipped unless level 4 is set up; CI runs all 278). They cover:
+289 tests (37 integration tests are skipped unless level 4 is set up; CI runs all 289). They cover:
 - `test_normalise_channels.py` – each of the 5 channels' messy-data rules (time formats, word-number
   ratings, PII masking, missing text -> rejected).
 - `test_enrich.py` – language, sentiment, kind, area and topic for en/de/fr.
@@ -152,11 +152,21 @@ select kind, count(*) from feedback group by 1;
 `.github/workflows/ci.yml` runs on every push and pull request, in two jobs side by side:
 
 - `test`: starts a PostgreSQL 16 container, applies `migrations/*.sql` in order, runs `ruff check .`
-  and then all 278 tests, with the integration tests switched on (no skips).
-- `docker`: checks `docker-compose.yml` is valid and builds the image.
+  and then all 289 tests, with the integration tests switched on (no skips).
+- `docker`: checks `docker-compose.yml` is valid, builds the image, checks the Prometheus config,
+  runs the alert-rule tests (`monitoring/alerts_test.yml`) and checks the dashboard JSON.
 
 Results are in the repository's Actions tab, and the badge at the top of the README shows the latest
 run on `main`. To reproduce the `test` job locally, use level 4 above against an empty database.
+
+## 7. Monitoring
+
+- `tests/test_metrics.py` (part of level 1): every counter moves when it should.
+- Alert rules, if you have `promtool` (it comes with Prometheus): `promtool test rules monitoring/alerts_test.yml`.
+- By hand: with the stack up, open http://localhost:9090/targets (api, worker and scheduler should be
+  UP) and http://localhost:3000 (dashboard "Signal overview"). Replay some feedback (level 5) and watch
+  the graphs. Try `docker compose stop worker`: after a minute `SignalProcessDown` fires on
+  http://localhost:9090/alerts, and "Waiting in Kafka" grows while you keep sending.
 
 ## Not tested yet
 Kafka/Redpanda and Docker were not available where I built this, so levels 3 and 5 against the real

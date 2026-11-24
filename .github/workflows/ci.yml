@@ -1,7 +1,7 @@
 # CI: on every push and pull request, check the code and run all tests.
 # Two jobs run side by side:
 #   test   - lint + all tests, including the ones that need a real PostgreSQL
-#   docker - the Docker image still builds (the same image the api, worker and scheduler use)
+#   docker - the Docker image still builds, and the monitoring config (Prometheus rules, Grafana) is valid
 name: CI
 
 on:
@@ -77,3 +77,15 @@ jobs:
 
       - name: Build the image
         run: docker build -t signal-app:ci .
+
+      # Monitoring: the Prometheus config and alert rules are valid, and the alerts fire when
+      # they should (monitoring/alerts_test.yml). Uses the same Prometheus image as compose.
+      - name: Check Prometheus config and alert rules
+        run: |
+          docker run --rm -v "$PWD/monitoring:/etc/prometheus:ro" --entrypoint promtool \
+            prom/prometheus:v3.5.0 check config /etc/prometheus/prometheus.yml
+          docker run --rm -v "$PWD/monitoring:/etc/prometheus:ro" --entrypoint promtool \
+            prom/prometheus:v3.5.0 test rules /etc/prometheus/alerts_test.yml
+
+      - name: Check the Grafana dashboard is valid JSON
+        run: python3 -m json.tool monitoring/grafana/dashboards/signal-overview.json > /dev/null

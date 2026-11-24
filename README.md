@@ -7,12 +7,15 @@ Feedback: An Analyzer for feedback
 Signal collects customer feedback from several channels for several retailers (tenants), cleans it
 into one shape, groups it into themes, ranks them by impact and raises alarms.
 
-Design docs: [`docs/`](docs/) (ADRs, sequence diagrams, deployment, threat model).
+Design docs: [`docs/`](docs/) (ADRs, sequence diagrams, deployment, threat model, monitoring).
+
+Monitoring: Grafana at http://localhost:3000 (dashboard "Signal overview"), Prometheus at
+http://localhost:9090. See [`docs/monitoring.md`](docs/monitoring.md).
 
 ## Run it locally
 
 ```bash
-docker compose up --build -d          # redpanda (+ topic), postgres, api, worker, scheduler
+docker compose up --build -d          # redpanda (+ topic), postgres, api, worker, scheduler, prometheus, grafana
 uv run python scripts/provision_keys.py   # writes keys.json (git-ignored)
 uv run python scripts/load_business_daily.py path/to/business_daily.csv   # for the impact score
 ```

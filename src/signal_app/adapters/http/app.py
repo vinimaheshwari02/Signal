@@ -1,11 +1,13 @@
 """HTTP adapter: thin FastAPI routes over the use cases."""
 import logging
+import time
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from ...core import errors
 from ...core.alarm_jobs import ListAlerts
@@ -15,6 +17,7 @@ from ...core.models import Feedback, FeedbackFilter
 from ...core.query import ListFeedback
 from ...core.theme_jobs import ListThemes
 from ...core.themes import RankedThemes, Theme
+from .. import metrics
 
 log = logging.getLogger("signal.api")
 
@@ -73,9 +76,37 @@ async def read_capped(request: Request, limit: int) -> bytes:
     return bytes(received[:limit])
 
 
+def record_request(request: Request, status: int, seconds: float) -> None:
+    """Count one answered request for Prometheus (adapters/metrics.py)."""
+    route = request.scope.get("route")
+    # The route template ("/v1/sources/{channel}/feedback"), not the real path: one series per
+    # endpoint instead of one per channel or id. Unknown paths share "unmatched".
+    template = route.path if route is not None else "unmatched"
+    if template == "/metrics":
+        return  # Prometheus asking every 15 s would drown out the real traffic
+    metrics.HTTP_REQUESTS.labels(request.method, template, str(status)).inc()
+    metrics.HTTP_DURATION.labels(request.method, template).observe(seconds)
+    if template == "/v1/sources/{channel}/feedback":
+        channel = metrics.channel_label(request.path_params.get("channel", ""))
+        metrics.FEEDBACK_RECEIVED.labels(channel, str(status)).inc()
+
+
 def create_app(ingest: IngestFeedback, list_feedback: ListFeedback,
                list_themes: ListThemes | None = None, list_alerts: ListAlerts | None = None) -> FastAPI:
     app = FastAPI(title="Signal", version="0.1.0")
+
+    @app.middleware("http")
+    async def measure(request: Request, call_next):
+        """Runs around every request: start a timer, let the route answer, then record the result."""
+        started = time.perf_counter()
+        try:
+            response = await call_next(request)
+        except Exception:
+            # An unexpected error: the `unexpected` handler below answers 503, outside this middleware.
+            record_request(request, 503, time.perf_counter() - started)
+            raise
+        record_request(request, response.status_code, time.perf_counter() - started)
+        return response
 
     @app.exception_handler(HTTPException)
     async def http_error(request, exc: HTTPException):
@@ -109,6 +140,11 @@ def create_app(ingest: IngestFeedback, list_feedback: ListFeedback,
     @app.get("/health")
     def health():
         return {"status": "ok"}
+
+    @app.get("/metrics", include_in_schema=False)
+    def metrics_route():
+        """Every metric of this process in Prometheus' text format. Internal network only."""
+        return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     @app.post("/v1/sources/{channel}/feedback")
     async def ingest_route(channel: str, request: Request,

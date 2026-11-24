@@ -70,5 +70,30 @@ services:
     depends_on:
       postgres: {condition: service_healthy}
 
+  # Monitoring: Prometheus collects the numbers from api, worker and scheduler every 15 s and checks
+  # the alert rules; Grafana draws them. Open http://localhost:3000 (dashboard "Signal overview").
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - promdata:/prometheus
+    ports: ["9090:9090"]
+    depends_on: [api, worker, scheduler]
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    environment:
+      # Local demo only: anyone who opens the page can look, admin/admin can edit.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/signal-overview.json
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3000:3000"]
+    depends_on: [prometheus]
+
 volumes:
   pgdata:
+  promdata:

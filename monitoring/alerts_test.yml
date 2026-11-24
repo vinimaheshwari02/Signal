@@ -1,0 +1,94 @@
+# Unit tests for alerts.yml: feed made-up numbers, check which alerts fire.
+# Run: promtool test rules monitoring/alerts_test.yml   (CI runs this too)
+# "0+10x30" means: start at 0 and add 10 every interval, 30 times.
+rule_files:
+  - alerts.yml
+evaluation_interval: 1m
+
+tests:
+  - name: a process that stops answering pages after 1 minute
+    interval: 1m
+    input_series:
+      - series: 'up{job="worker", instance="worker:9100"}'
+        values: "1 0 0 0"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: SignalProcessDown
+        exp_alerts: []          # just went down: still waiting
+      - eval_time: 3m
+        alertname: SignalProcessDown
+        exp_alerts:
+          - exp_labels: {severity: page, job: worker, instance: "worker:9100"}
+            exp_annotations: {summary: "worker has not answered Prometheus for 1 minute"}
+
+  - name: 10% of requests failing for 5 minutes pages; 1% does not
+    interval: 1m
+    input_series:
+      - series: 'signal_http_requests_total{route="/v1/feedback", status="200"}'
+        values: "0+90x20"
+      - series: 'signal_http_requests_total{route="/v1/sources/{channel}/feedback", status="503"}'
+        values: "0+10x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: SignalApiErrors
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations:
+              summary: "More than 5% of API requests fail with 5xx (usually Kafka or PostgreSQL is down)"
+
+  - name: a few errors stay below the threshold
+    interval: 1m
+    input_series:
+      - series: 'signal_http_requests_total{status="200"}'
+        values: "0+99x20"
+      - series: 'signal_http_requests_total{status="503"}'
+        values: "0+1x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: SignalApiErrors
+        exp_alerts: []
+
+  - name: a worker that keeps retrying pages
+    interval: 1m
+    input_series:
+      - series: 'signal_worker_messages_total{result="retry"}'
+        values: "0+30x15"
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: SignalWorkerRetrying
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations: {summary: "The worker keeps retrying: PostgreSQL is probably unreachable"}
+
+  - name: a short burst in Kafka is fine, a backlog that stays is not
+    interval: 1m
+    input_series:
+      - series: 'signal_worker_lag_messages{partition="0"}'
+        values: "9000 9000 100 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"
+      - series: 'signal_worker_lag_messages{partition="1"}'
+        values: "0 0 0 0 0 0 0 0 0 0 6000 6000 6000 6000 6000 6000 6000 6000 6000 6000 6000 6000 6000 6000 6000"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: SignalWorkerBehind
+        exp_alerts: []          # the burst at the start drained in 2 minutes
+      - eval_time: 22m
+        alertname: SignalWorkerBehind
+        exp_alerts:
+          - exp_labels: {severity: ticket}
+            exp_annotations: {summary: "6000 messages waiting in Kafka for 10 minutes: add workers or check the database"}
+
+  - name: themes not recomputed for more than 15 minutes
+    interval: 1m
+    input_series:
+      # Last success at t=60 s, then never again.
+      - series: 'signal_scheduler_last_success_timestamp_seconds{task="themes"}'
+        values: "60x30"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: SignalThemesStale
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: SignalThemesStale
+        exp_alerts:
+          - exp_labels: {severity: ticket, task: themes}
+            exp_annotations: {summary: "Themes have not been recomputed successfully for 15 minutes"}

@@ -1,0 +1,8 @@
+# Load every dashboard JSON file from /var/lib/grafana/dashboards at start-up.
+apiVersion: 1
+providers:
+  - name: signal
+    folder: Signal
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

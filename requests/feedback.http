@@ -12,7 +12,7 @@ Content-Type: application/json
 
 {
   "ticket": {
-    "id": "ZD-1",
+    "id": "ZD-2",
     "created": 1784609488000,
     "description": "My parcel never arrived, call me on +44 7700 900519",
     "requester": {
@@ -153,3 +153,6 @@ X-Api-Key: {{support_ticket}}
 ### The same theme a month earlier
 GET {{host}}/v1/themes?area=delivery&topic=delay&as_of=2026-09-22
 X-Api-Key: {{support_ticket}}
+
+### Monitoring: this API process's numbers in Prometheus format (no key needed)
+GET {{host}}/metrics

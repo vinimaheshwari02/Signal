@@ -16,3 +16,5 @@ ALARM_INTERVAL_SECONDS = int(os.getenv("ALARM_INTERVAL_SECONDS", "60"))
 # Database connections per process. The API serves requests on worker threads; each one holds a
 # connection while it waits, so more threads than connections means waiting for a connection.
 DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "10"))
+# The worker and the scheduler answer GET /metrics on this port (the API uses its own port).
+METRICS_PORT = int(os.getenv("METRICS_PORT", "9100"))

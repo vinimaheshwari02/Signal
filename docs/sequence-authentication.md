@@ -48,5 +48,5 @@ sequenceDiagram
 - `SET LOCAL` is transaction-scoped, so the setting cannot leak to another request on a pooled connection. If the setting is missing, the policy returns no rows.
 - The API database role has row-level security enforced. Workers and the scheduler use a separate internal role that bypasses it, and take the tenant from the Kafka envelope or iterate tenants themselves.
 - The key lookup itself happens before the tenant is known, so it uses a narrowly scoped lookup that only reads `api_keys`.
-- `/health` is unauthenticated; `/metrics` is reachable on the internal network only.
+- `/health` and `/metrics` are unauthenticated. `/metrics` holds counts only; in production it is blocked at the ingress so only Prometheus reaches it (see monitoring.md).
 - Read endpoints never return customer references or personal data.

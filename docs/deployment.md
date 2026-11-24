@@ -18,6 +18,7 @@ flowchart LR
         PG[(postgres)]
         RD[(redis)]
         PROM[prometheus]
+        GRAF[grafana]
     end
 
     SRC -->|POST feedback| API
@@ -37,6 +38,8 @@ flowchart LR
     PROM -.->|scrape /metrics| WRK
     PROM -.->|scrape /metrics| SCH
     PROM -->|alerts| ONC
+    GRAF -.->|queries| PROM
+    ONC -->|dashboard| GRAF
 ```
 
 ## Read path (cache-aside)
@@ -75,7 +78,11 @@ The scheduler clears the affected cache entries after it recomputes themes. If R
 | `redpanda` | Kafka-compatible broker with topics for ingest, enriched, retry and DLQ | none | Kafka listener, internal |
 | `postgres` | System of record, with the `signal_api` and `signal_internal` roles and RLS policies | none | internal |
 | `redis` | Query cache and rate-limit counters | none | internal |
-| `prometheus` | Scrapes metrics, evaluates alert rules | api, worker, scheduler | UI, published to host |
+| `prometheus` | Scrapes metrics, evaluates alert rules | api, worker, scheduler | 9090, published to host |
+| `grafana` | The "Signal overview" dashboard | prometheus | 3000, published to host |
+
+Built so far: api, worker, scheduler, redpanda, postgres, prometheus and grafana. Redis and the retry
+and dead-letter topics are designed but not built. Monitoring details: [monitoring.md](monitoring.md).
 
 ## Build and release (CI)
 
@@ -86,8 +93,8 @@ and roll it out to Kubernetes after the tests pass on `main`.
 
 ## Notes
 
-- Only the API and Prometheus UI are published to the host. Datastores stay on the internal network.
-- `/metrics` is exposed to the internal network only.
+- Only the API, the Prometheus UI and Grafana are published to the host. Datastores stay on the internal network.
+- The worker and scheduler serve `/metrics` on port 9100, on the internal network only. The API serves it on its own port, so in production `/metrics` must be blocked at the ingress (see monitoring.md).
 - Configuration (database URLs, broker address, secrets) comes from environment variables, with no secrets in the image.
 - Database migrations run as a one-off step before the API and workers start, using expand-and-contract so old and new versions can run side by side.
 - Each datastore uses a named volume so data survives restarts.

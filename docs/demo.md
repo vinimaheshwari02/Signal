@@ -32,6 +32,6 @@ not empty. Take screenshots of both and of `backtest.txt` in case the live run m
 | 0:50–1:25 | IntelliJ: POST support_ticket → 202, same request → 200, then `GET /v1/feedback` | The second send is a duplicate, so it is not stored twice. The stored item is labelled (delivery, missing parcel, problem, negative) and the phone number is masked. |
 | 1:25–2:10 | `GET /v1/themes`, then `?as_of=2026-09-22` | Delivery delay leads: 468 customers, rising, and late deliveries in Germany are 1.57 times normal, about 730 extra late orders. One month earlier, a payment outage is second. Customers times business severity, so loud but harmless themes do not win. |
 | 2:10–2:35 | `GET /v1/alerts`, then the backtest output | The replay I just ran was itself a flood, so the source alarm fired. The backtest over 90 days finds exactly the resend on 29 September and the payment outage on 21 September, and nothing else. |
-| 2:35–3:00 | Results slide | 218 tests, 516 requests a second per process after fixing a blocking route. Not built yet: dead-letter topic, rate limiting, sending alarms, metrics. Those are next. |
+| 2:35–3:00 | Results slide | 218 tests, 516 requests a second per process after fixing a blocking route. CI on every push; Prometheus and Grafana for monitoring. Not built yet: dead-letter topic, rate limiting, sending alarms. Those are next. |
 
 Record it in one take after a dry run.

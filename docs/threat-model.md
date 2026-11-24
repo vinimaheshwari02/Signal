@@ -64,7 +64,7 @@ flowchart LR
 | T9 | Information disclosure | Cross-tenant write by a worker | Tenant isolation | Tenant taken from the envelope only; unit test asserts stored rows carry the envelope tenant; code review on the internal role; residual risk accepted |
 | T10 | Information disclosure | Personal data stored or logged | Feedback text, logs | Emails, phone numbers and order numbers masked at ingest, before publish; customer reference salted and hashed; raw payload not stored in PostgreSQL; logs never contain raw text; read endpoints never return personal data; per-customer deletion |
 | T11 | Information disclosure | Error messages leak internals | API | One error format with `request_id`; no stack traces or SQL in responses |
-| T12 | Information disclosure | Metrics or docs expose internals | Operations | `/metrics` on the internal network only; `/docs` optional and disabled where not needed |
+| T12 | Information disclosure | Metrics or docs expose internals | Operations | `/metrics` holds counts only, no customer data or tenant names. Worker and scheduler serve it on an internal port; the API's must be blocked at the ingress in production (open in local Compose). `/docs` optional and disabled where not needed |
 | T13 | Denial of service | Burst or flood from one tenant starves others | Availability | Per-tenant rate limiting returning 429; Kafka buffers bursts; consumers scale to partition count; request size limits |
 | T14 | Denial of service | Poison message blocks processing | Workers | Bounded retries, then dead-letter topic; DLQ alert |
 | T15 | Denial of service | Redis or dependency outage | Availability | Rate limits fail open with a warning; queries fall back to PostgreSQL; Kafka or database outage fails closed with 503 and `Retry-After` |

@@ -1,8 +1,8 @@
 # Architecture overview
 
 The four structural diagrams, as built in November 2026. Behaviour is in the sequence documents;
-decisions are in `adr/`. The original design had more parts (Redis, Prometheus, retry and
-dead-letter topics); what differs is listed under "As built" in the sequence documents.
+decisions are in `adr/`. The original design had more parts (Redis, retry and
+dead-letter topics; Prometheus and Grafana are now built, see `monitoring.md`); what differs is listed under "As built" in the sequence documents.
 
 ## 1. System context
 

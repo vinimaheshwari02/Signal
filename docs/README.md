@@ -12,8 +12,8 @@
 | 8 | Deployment diagram | [deployment.md](deployment.md) |
 | 9 | Threat model | [threat-model.md](threat-model.md) |
 | 10 | API documentation | [api.md](api.md), plus the live OpenAPI page at `/docs` |
-| 11 | Architecture Decision Records (10) | [adr/](adr/) |
+| 11 | Architecture Decision Records (11) | [adr/](adr/) |
 
-Also here: [load-test.md](load-test.md) (method and numbers) and [demo.md](demo.md) (the 3-minute demo).
+Also here: [monitoring.md](monitoring.md) (metrics, dashboard, alert rules), [load-test.md](load-test.md) (method and numbers) and [demo.md](demo.md) (the 3-minute demo).
 
 The template speaks of orders; in Signal the thing submitted and processed is a piece of feedback.
